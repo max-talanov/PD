@@ -78,11 +78,15 @@ PROJECTIONS = [
 ]
 
 # External drive (cortex/striatum input) per region: (healthy_mean, pd_mean, std)
+# Values are kept above the Hodgkin-Huxley rheobase (~6.2 uA/cm^2) so each
+# nucleus fires *tonically* (repetitive spike trains) rather than emitting a
+# single onset transient and then resting. The std term adds per-neuron noise
+# so the populations desynchronize into sustained, ongoing activity.
 EXTERNAL_DRIVE = {
-    "STN": (3.0, 5.0, 0.5),   # PD: increased excitatory drive to STN (loss of striatal D2 inhibition)
-    "GPe": (1.5, 0.5, 0.5),   # PD: reduced drive to GPe (less striatal inhibition relief)
-    "GPi": (1.0, 1.0, 0.5),
-    "Th": (0.5, 0.5, 0.5),
+    "STN": (10.0, 14.0, 1.5),  # PD: increased excitatory drive to STN (loss of striatal D2 inhibition)
+    "GPe": (12.0, 8.0, 1.5),   # PD: reduced drive to GPe (less striatal inhibition relief)
+    "GPi": (10.0, 13.0, 1.5),
+    "Th": (9.0, 6.0, 1.5),     # PD: reduced thalamocortical drive
 }
 
 E_EXC, E_INH = 0.0, -80.0

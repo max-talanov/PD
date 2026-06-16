@@ -12,7 +12,16 @@ It simulates four coupled nuclei (STN, GPe, GPi, Thalamus), each a small
 population of conductance-based Hodgkin-Huxley neurons connected via
 mean-field excitatory/inhibitory synapses. It supports a "healthy" and a
 "PD" parameter regime (altered coupling strengths and external drive), plus
-an optional high-frequency DBS pulse train applied to STN.
+an optional deep brain stimulation (DBS) mode.
+
+DBS is modelled as functional silencing of the stimulated nucleus' efferent
+output (stimulation-induced depolarization block / synaptic depression).
+The default target is **GPi**: suppressing the over-active GPi → thalamus
+inhibition lets thalamocortical output recover (Th rate PD ~58 Hz →
+PD+DBS ~157 Hz), which is the therapeutic direction and propagates through
+all downstream phases. (STN-DBS is far less effective in this rate-level
+model — a known subtlety of firing-rate accounts of the basal ganglia — so
+GPi, also a standard clinical target, is the default.)
 
 ### Run
 
@@ -72,8 +81,12 @@ model:
   PD collapses thalamic firing → weak, slow voluntary force
   (bradykinesia).
 - **tremor drive** ← thalamic suppression below the healthy reference
-  (GPi over-inhibition → thalamic rebound bursting). DBS is modelled as
-  functional suppression of this pathological drive.
+  (GPi over-inhibition → thalamic rebound bursting).
+
+The DBS benefit here is **emergent**, not hand-tuned: GPi-DBS restores
+thalamic firing in the spiking model (Phase 1), which simultaneously
+raises the voluntary CPG drive (less bradykinesia) and lowers the tremor
+drive — no separate DBS-tremor factor is applied in this phase.
 
 The CPG drives flexor/extensor motoneuron pools in antagonist fashion
 (it moves the limb); the tremor oscillation is injected common-mode (it
@@ -89,7 +102,8 @@ absolute tremor amplitude per condition, and saves
 `pd_phase4_spinal_cpg_output.png` (force traces + spectra). Representative
 result: healthy shows a slow voluntary rhythm with no tremor; PD shows a
 sustained ~4-5 Hz rest tremor with collapsed voluntary movement; PD+DBS
-suppresses the tremor amplitude several-fold.
+restores the voluntary rhythm and suppresses the tremor amplitude
+roughly two-fold.
 
 ### Why the rhythm generators live at the population/rate level
 

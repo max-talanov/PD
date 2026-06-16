@@ -43,7 +43,7 @@ def run_condition(condition, t_max, dbs_on=False, seed=0):
     return simulate(
         condition=condition, t_max=t_max, dbs_on=dbs_on, seed=seed,
         regions=REGIONS, projections=PROJECTIONS, external_drive=EXTERNAL_DRIVE,
-        dbs_target="STN",
+        dbs_target="GPi",
     )
 
 

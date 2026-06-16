@@ -67,14 +67,19 @@ def hh_currents(v, m, h, n):
 
 REGIONS = ["STN", "GPe", "GPi", "Th"]
 
-# Synaptic projections: (source, target, sign, healthy_g, pd_g, tau_ms)
+# Synaptic projections: (source, target, sign, healthy_g, pd_g, tau_ms, delay_ms)
 # sign: +1 excitatory (E_syn = 0 mV), -1 inhibitory (E_syn = -80 mV)
+# delay_ms: axonal conduction + synaptic delay (the reciprocal STN <-> GPe
+# loop is a delayed feedback loop). In PD the indirect-pathway gains are
+# increased (g_pd): STN/GPi drive grows and GPi over-inhibits the thalamus,
+# collapsing thalamocortical output -- the core basal-ganglia output
+# abnormality that Phase 4 reads out to drive limb bradykinesia and tremor.
 PROJECTIONS = [
-    ("STN", "GPe", +1, 0.15, 0.30, 5.0),   # STN -> GPe excitation
-    ("GPe", "STN", -1, 0.20, 0.55, 10.0),  # GPe -> STN inhibition (strengthens in PD)
-    ("GPe", "GPi", -1, 0.15, 0.15, 10.0),  # GPe -> GPi inhibition
-    ("STN", "GPi", +1, 0.15, 0.35, 5.0),   # STN -> GPi excitation (strengthens in PD)
-    ("GPi", "Th", -1, 0.25, 0.55, 10.0),   # GPi -> Th inhibition (strengthens in PD)
+    ("STN", "GPe", +1, 0.15, 0.30, 5.0, 6.0),    # STN -> GPe excitation
+    ("GPe", "STN", -1, 0.20, 0.55, 10.0, 10.0),  # GPe -> STN inhibition (delayed, stronger in PD)
+    ("GPe", "GPi", -1, 0.15, 0.15, 10.0, 6.0),   # GPe -> GPi inhibition
+    ("STN", "GPi", +1, 0.15, 0.35, 5.0, 6.0),    # STN -> GPi excitation (strengthens in PD)
+    ("GPi", "Th", -1, 0.25, 0.55, 10.0, 5.0),    # GPi -> Th inhibition (strengthens in PD)
 ]
 
 # External drive (cortex/striatum input) per region: (healthy_mean, pd_mean, std)
@@ -125,8 +130,17 @@ def simulate(condition="healthy", n_per_region=10, t_max=1000.0, dt=0.01,
     h = alpha_h(v) / (alpha_h(v) + beta_h(v))
     n = alpha_n(v) / (alpha_n(v) + beta_n(v))
 
+    # normalise projections to 7-tuples (default zero delay if unspecified)
+    projections = [p if len(p) == 7 else (*p, 0.0) for p in projections]
+
     # synaptic gating variable per projection (mean-field, scalar)
     s_syn = {p[:2]: 0.0 for p in projections}
+
+    # per-projection conduction delay in integration steps
+    delay_steps = {p[:2]: int(round(p[6] / dt)) for p in projections}
+
+    # history of each region's firing fraction, for delayed synaptic readout
+    fire_hist = np.zeros((n_reg, n_steps))
 
     # outputs
     t = np.arange(n_steps) * dt
@@ -155,15 +169,20 @@ def simulate(condition="healthy", n_per_region=10, t_max=1000.0, dt=0.01,
             if phase < pulse_width:
                 i_ext[idx[dbs_target]] += dbs_amp
 
-        # --- synaptic currents from projections ---
+        # current firing fraction per region (for the delay history buffer)
+        fire_hist[:, step] = above_thresh_prev.mean(axis=1)
+
+        # --- synaptic currents from projections (with conduction delay) ---
         i_syn = np.zeros((n_reg, n_per_region))
-        for (src, tgt, sign, g_h, g_pd, tau) in projections:
+        for (src, tgt, sign, g_h, g_pd, tau, _delay) in projections:
             g = g_pd if condition == "pd" else g_h
             e_syn = E_EXC if sign > 0 else E_INH
             s = s_syn[(src, tgt)]
             i_syn[idx[tgt]] += g * s * (v[idx[tgt]] - e_syn)
-            # synapse gating decays exponentially, driven by source firing rate
-            firing_frac = above_thresh_prev[idx[src]].mean()
+            # synapse gating decays exponentially, driven by the *delayed*
+            # source firing rate (axonal conduction + synaptic delay)
+            d = delay_steps[(src, tgt)]
+            firing_frac = fire_hist[idx[src], step - d] if step >= d else 0.0
             s_syn[(src, tgt)] = s + dt * (firing_frac * 5.0 * (1 - s) - s / tau)
 
         # --- HH dynamics (Euler integration) ---

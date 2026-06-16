@@ -51,9 +51,55 @@ saves `pd_phase3_spinal_force_output.png` (force traces + power spectra).
 python pd_phase3_spinal_force.py
 ```
 
-**Known limitation of this first pass:** with the current coupling
-strengths, the Th -> M1 drive is too weak relative to M1's own dynamics
-for the PD beta/tremor-band oscillations to clearly show up in the force
-spectrum (healthy/PD/PD+DBS spectra come out nearly identical). Future
-iterations should strengthen the thalamocortical projection and/or
-amplify low-frequency STN/GPe oscillations before they reach M1.
+**Note:** Phase 3 reads the M1 *mean membrane potential*, which during
+asynchronous tonic firing carries almost no coherent oscillation, so its
+force spectrum does not show tremor. Seeing tremor requires rhythm
+generators at the population level — see Phase 4.
+
+## Phase 4 prototype: spinal CPG + visible limb tremor
+
+`pd_phase4_spinal_cpg.py` is where the Parkinsonian tremor actually
+becomes visible in a limb force profile. It adds a spinal central pattern
+generator (CPG) — a Matsuoka flexor/extensor half-center oscillator, the
+same reciprocal-inhibition-with-fatigue mechanism used by
+[tinyCPG](https://github.com/max-talanov/tinyCPG) — plus a second Matsuoka
+oscillator tuned to the 4-6 Hz tremor band.
+
+Both rhythm generators are *driven by* the Phase 1-2 BGTH + M1 spiking
+model:
+
+- **voluntary CPG drive** ← thalamocortical output (thalamus firing rate).
+  PD collapses thalamic firing → weak, slow voluntary force
+  (bradykinesia).
+- **tremor drive** ← thalamic suppression below the healthy reference
+  (GPi over-inhibition → thalamic rebound bursting). DBS is modelled as
+  functional suppression of this pathological drive.
+
+The CPG drives flexor/extensor motoneuron pools in antagonist fashion
+(it moves the limb); the tremor oscillation is injected common-mode (it
+shakes the limb). Each pool is low-pass filtered and convolved with a
+muscle twitch; the net joint force is their difference.
+
+```bash
+python pd_phase4_spinal_cpg.py
+```
+
+Reports voluntary/tremor drives, the tremor-band peak frequency, and
+absolute tremor amplitude per condition, and saves
+`pd_phase4_spinal_cpg_output.png` (force traces + spectra). Representative
+result: healthy shows a slow voluntary rhythm with no tremor; PD shows a
+sustained ~4-5 Hz rest tremor with collapsed voluntary movement; PD+DBS
+suppresses the tremor amplitude several-fold.
+
+### Why the rhythm generators live at the population/rate level
+
+The mean-field Hodgkin-Huxley pools (Phases 1-2) fire tonically but
+asynchronously, so they carry essentially no coherent tremor-band
+oscillation; coercing a small spiking pool into a clean limit cycle is
+brittle. Following the multiscale co-simulation philosophy of the source
+article (microscale neurons + macroscale dynamics), Phase 4 keeps the
+spiking network as the microscale layer and places the robust, tunable
+rhythm generators (CPG + tremor) at the macroscale rate level, coupled to
+the spiking model through firing-rate read-outs. A natural next step is to
+close this loop with a genuinely oscillating (synchronised) STN-GPe
+spiking sub-circuit.

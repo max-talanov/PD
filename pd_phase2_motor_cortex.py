@@ -34,7 +34,9 @@ PROJECTIONS = BGTH_PROJECTIONS + [
 ]
 
 EXTERNAL_DRIVE = dict(BGTH_EXTERNAL_DRIVE)
-EXTERNAL_DRIVE["M1"] = (3.0, 3.0, 0.5)  # baseline cortical drive, unchanged by PD
+# Above HH rheobase so M1 fires tonically; thalamocortical (Th -> M1) input
+# then modulates this ongoing activity rather than having to ignite it.
+EXTERNAL_DRIVE["M1"] = (8.0, 8.0, 1.5)  # baseline cortical drive, unchanged by PD
 
 
 def run_condition(condition, t_max, dbs_on=False, seed=0):

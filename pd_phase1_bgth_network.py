@@ -79,7 +79,7 @@ PROJECTIONS = [
     ("GPe", "STN", -1, 0.20, 0.55, 10.0, 10.0),  # GPe -> STN inhibition (delayed, stronger in PD)
     ("GPe", "GPi", -1, 0.15, 0.15, 10.0, 6.0),   # GPe -> GPi inhibition
     ("STN", "GPi", +1, 0.15, 0.35, 5.0, 6.0),    # STN -> GPi excitation (strengthens in PD)
-    ("GPi", "Th", -1, 0.25, 0.55, 10.0, 5.0),    # GPi -> Th inhibition (strengthens in PD)
+    ("GPi", "Th", -1, 0.25, 0.85, 10.0, 5.0),    # GPi -> Th inhibition (strengthens in PD)
 ]
 
 # External drive (cortex/striatum input) per region: (healthy_mean, pd_mean, std)
@@ -91,10 +91,22 @@ EXTERNAL_DRIVE = {
     "STN": (10.0, 14.0, 1.5),  # PD: increased excitatory drive to STN (loss of striatal D2 inhibition)
     "GPe": (12.0, 8.0, 1.5),   # PD: reduced drive to GPe (less striatal inhibition relief)
     "GPi": (10.0, 13.0, 1.5),
-    "Th": (9.0, 6.0, 1.5),     # PD: reduced thalamocortical drive
+    "Th": (9.0, 9.0, 1.5),     # PD thalamic silencing comes from GPi over-inhibition,
+                               # not loss of intrinsic drive (so DBS can relieve it)
 }
 
 E_EXC, E_INH = 0.0, -80.0
+
+# Deep brain stimulation (DBS) is modelled as functional silencing of the
+# stimulated nucleus' *efferent* output (stimulation-induced depolarization
+# block / synaptic depression): high-frequency stimulation drives the soma
+# but suppresses transmission of the pathological output to downstream
+# nuclei. The default target is GPi: suppressing the over-active GPi -> Th
+# inhibition lets thalamocortical output recover -- the therapeutic
+# direction. (STN-DBS is far less effective in this rate-level model, a
+# known subtlety of firing-rate accounts of the basal ganglia, so GPi --
+# also a standard clinical DBS target -- is used here.)
+DBS_EFFERENT_SUPPRESSION = 0.8  # fraction of target's outgoing transmission removed
 
 
 # ----------------------------------------------------------------------
@@ -104,7 +116,7 @@ E_EXC, E_INH = 0.0, -80.0
 def simulate(condition="healthy", n_per_region=10, t_max=1000.0, dt=0.01,
               dbs_on=False, dbs_freq=130.0, dbs_amp=3.0, seed=0,
               regions=None, projections=None, external_drive=None,
-              dbs_target="STN"):
+              dbs_target="GPi"):
     """Simulate a Hodgkin-Huxley mean-field network.
 
     condition : "healthy" or "pd"
@@ -163,7 +175,7 @@ def simulate(condition="healthy", n_per_region=10, t_max=1000.0, dt=0.01,
             base = pd_mean if condition == "pd" else mean
             i_ext[idx[r]] = base + std * rng.standard_normal(n_per_region)
 
-        # --- DBS current to target nucleus ---
+        # --- DBS high-frequency current to target nucleus (stimulation) ---
         if dbs_on:
             phase = time % dbs_period
             if phase < pulse_width:
@@ -183,6 +195,9 @@ def simulate(condition="healthy", n_per_region=10, t_max=1000.0, dt=0.01,
             # source firing rate (axonal conduction + synaptic delay)
             d = delay_steps[(src, tgt)]
             firing_frac = fire_hist[idx[src], step - d] if step >= d else 0.0
+            # DBS silences the stimulated nucleus' efferent transmission
+            if dbs_on and src == dbs_target:
+                firing_frac *= (1.0 - DBS_EFFERENT_SUPPRESSION)
             s_syn[(src, tgt)] = s + dt * (firing_frac * 5.0 * (1 - s) - s / tau)
 
         # --- HH dynamics (Euler integration) ---

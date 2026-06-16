@@ -50,8 +50,10 @@ from pd_phase3_spinal_force import twitch_kernel, TREMOR_BAND
 
 # Healthy reference thalamic rate (Hz); PD *suppression* below this drives
 # both bradykinesia (weak voluntary drive) and tremor (rebound bursting).
+# DBS reduces tremor *emergently*: by relieving GPi over-inhibition it
+# restores thalamic firing in the spiking model, which lowers this
+# suppression term -- no separate DBS factor is needed here.
 TH_HEALTHY_REF = 215.0
-DBS_TREMOR_SUPPRESSION = 0.85  # fraction of pathological tremor drive removed by DBS
 
 
 # ----------------------------------------------------------------------
@@ -96,7 +98,7 @@ def descending_command(res, t_max):
     return np.clip(th_rate / 130.0, 0.0, 2.5)
 
 
-def tremor_drive(res, t_max, dbs_on, th_ref=TH_HEALTHY_REF):
+def tremor_drive(res, t_max, th_ref=TH_HEALTHY_REF):
     """Pathological tremor drive, from thalamic suppression below healthy ref.
 
     PD collapses thalamic firing (GPi over-inhibition); the resulting
@@ -105,8 +107,6 @@ def tremor_drive(res, t_max, dbs_on, th_ref=TH_HEALTHY_REF):
     th_rate = firing_rate_hz(res["spikes"]["Th"], t_max)
     suppression = max(0.0, th_ref - th_rate)
     drive = suppression / 120.0  # scale into the Matsuoka oscillation range
-    if dbs_on:
-        drive *= (1.0 - DBS_TREMOR_SUPPRESSION)
     return drive
 
 
@@ -123,10 +123,15 @@ def motoneuron_force(command, dt, tau_mn=20.0):
     return np.convolve(rate, h)[: len(rate)]
 
 
-def limb_force(res, t_max, dt, dbs_on, th_ref=TH_HEALTHY_REF,
+def limb_force(res, t_max, dt, th_ref=TH_HEALTHY_REF,
                cpg_tr=10.0, cpg_ta=650.0,      # ~1.5 Hz voluntary rhythm
                trem_tr=6.0, trem_ta=98.0):     # ~5 Hz tremor
-    """Compute net joint force time series for one condition."""
+    """Compute net joint force time series for one condition.
+
+    The DBS effect enters through ``res`` (the spiking model already encodes
+    DBS): GPi-DBS restores thalamic firing, which lowers both the tremor
+    drive and the voluntary-drive deficit.
+    """
     n_steps = int(t_max / dt)
 
     # voluntary rhythm: CPG drives flexor/extensor in antagonist fashion
@@ -134,7 +139,7 @@ def limb_force(res, t_max, dt, dbs_on, th_ref=TH_HEALTHY_REF,
     cpg_flex, cpg_ext = matsuoka(v_cmd, dt, cpg_tr, cpg_ta, n_steps=n_steps)
 
     # pathological tremor: common-mode shake added to both pools
-    s_trem = tremor_drive(res, t_max, dbs_on, th_ref=th_ref)
+    s_trem = tremor_drive(res, t_max, th_ref=th_ref)
     trem_a, trem_b = matsuoka(s_trem, dt, trem_tr, trem_ta, n_steps=n_steps)
     tremor = trem_a - trem_b  # zero-mean oscillation
 
@@ -178,7 +183,7 @@ def main():
     results = {}
     for label, cond, dbs in conditions:
         res = spiking[label]
-        lf = limb_force(res, t_max, dt, dbs_on=dbs, th_ref=th_ref)
+        lf = limb_force(res, t_max, dt, th_ref=th_ref)
         freqs, power, peak, frac = spectrum(lf["net"], dt)
         # absolute tremor-band amplitude (RMS of band-passed force)
         mask = (freqs >= TREMOR_BAND[0]) & (freqs <= TREMOR_BAND[1])

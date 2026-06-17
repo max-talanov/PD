@@ -117,3 +117,35 @@ rhythm generators (CPG + tremor) at the macroscale rate level, coupled to
 the spiking model through firing-rate read-outs. A natural next step is to
 close this loop with a genuinely oscillating (synchronised) STN-GPe
 spiking sub-circuit.
+
+## Phase 5: HPC parameter sweep (BSC MareNostrum 5 ready)
+
+`pd_phase5_hpc_sweep.py` wraps the Phase 1-4 model in an embarrassingly
+parallel parameter sweep so it can run as a SLURM job array on a
+supercomputer (e.g. BSC MareNostrum 5) and, later, swap the small
+mean-field backend for a large-scale spiking backend (NEST) behind the
+same interface. Each array task runs one grid point and writes a small
+JSON file; an aggregation step merges them into one CSV for downstream
+parameter inference against measured biomarkers.
+
+```bash
+python pd_phase5_hpc_sweep.py --list                 # grid size
+python pd_phase5_hpc_sweep.py --smoke --outdir out   # run first few points locally
+python pd_phase5_hpc_sweep.py --aggregate --outdir out
+```
+
+On the cluster, `slurm/pd_phase5_sweep.sbatch` launches the array; see its
+header for submission. The `nest` backend is a documented stub describing
+the mean-field → spiking mapping to implement cluster-side.
+
+## Personalization & clinical data
+
+`docs/DATA_REQUIREMENTS.md` specifies the data needed from IRCCS Centro
+Neurolesi "Bonino Pulejo" to personalize the model to individual patients
+and make it capable of treatment-effect prediction, grounded in the
+centre's brain-fingerprinting art-therapy study (NCT03178786). It covers
+what the centre already collects (clinical scores, T1/T2, rs-fMRI,
+Schaefer-400 FC) and what would additionally be needed (diffusion MRI for
+structural connectomes, DBS parameters, tremor accelerometry/EMG,
+longitudinal time points), plus how each item enters the personalization
+pipeline.

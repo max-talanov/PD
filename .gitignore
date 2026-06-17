@@ -1,3 +1,7 @@
+# Phase 5 HPC sweep artifacts
+sweep_out/
+logs/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

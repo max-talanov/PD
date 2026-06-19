@@ -62,9 +62,13 @@ python tc_sleep/tc_run.py --config tc_sleep/config/network_auditory_local.yaml -
 ```
 
 It prints per-layer firing rates and the **detected slow-wave (~1 Hz)** and
-**spindle (~13 Hz)** peaks, and writes `out/tc_sleep_local.png` (raster,
-LFP-proxy, cortical PSD, thalamic spectrogram). The process exits non-zero if
-either rhythm is missing, so the run self-validates.
+**spindle (~13 Hz)** peaks, and writes `out/tc_sleep_local.png` with five
+panels: (1) per-layer spike raster with UP/DOWN banding; (2) the cortical slow
+wave with the thalamic **spindle envelope** overlaid, showing spindles **nested
+on the UP states**; (3) the band-pass (9–16 Hz) thalamic trace zoomed to one
+slow cycle, showing the individual waxing/waning **13 Hz spindle volleys**;
+(4) a thalamic spectrogram; (5) cortical (slow) and thalamic (spindle) PSDs. The
+process exits non-zero if either rhythm is missing, so the run self-validates.
 
 MareNostrum 5 bio-plausible run:
 

@@ -9,8 +9,8 @@
 
 network:
   thalamus:        # MGB: TCR relay (E) + nRT reticular (I)
-    E: 5
-    I: 2
+    E: 10
+    I: 4
   L4:
     E: 24
     I: 6

@@ -186,11 +186,11 @@ class SleepParams:
     # spindle (~13 Hz): peaks push the (UP-phase, near-threshold) relay/reticular
     # cells over threshold once per cycle -> 13 Hz-locked firing nested on UP.
     spindle_freq: float = 13.0        # Hz
-    spindle_amp: float = 50.0         # pA, into nRT + TCR
+    spindle_amp: float = 60.0         # pA, into nRT + TCR
     spindle_phase_deg: float = 0.0
 
     # reticulo-thalamic loop tuning (the spindle resonator)
-    rt_inh_weight: float = 0.02       # uS, nRT -> TCR
+    rt_inh_weight: float = 0.014      # uS, nRT -> TCR
     rt_inh_delay: float = 6.0         # ms (half of ~1/13 s round trip)
     tr_exc_weight: float = 0.006      # uS, TCR -> nRT
     tr_exc_delay: float = 4.0         # ms

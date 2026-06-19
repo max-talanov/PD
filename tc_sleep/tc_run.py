@@ -86,6 +86,26 @@ def band_power(signal, fs, fmin, fmax):
     return float(np.trapezoid(pxx[band], f[band])) if np.any(band) else 0.0
 
 
+def bandpass_envelope(signal, fs, lo, hi):
+    """Zero-phase band-pass filter + Hilbert amplitude envelope.
+
+    Returns (filtered, envelope) -- the canonical spindle representation: the
+    band-pass trace shows the ~13 Hz oscillation, the envelope shows the
+    waxing/waning amplitude of individual spindles.
+    """
+    from scipy.signal import butter, filtfilt, hilbert
+    sig = np.asarray(signal, float)
+    sig = sig - sig.mean()
+    nyq = fs / 2.0
+    b, a = butter(3, [lo / nyq, hi / nyq], btype="band")
+    # filtfilt needs len > 3*max(len(a),len(b)); guard short signals
+    if len(sig) <= 3 * max(len(a), len(b)):
+        return sig, np.abs(sig)
+    filt = filtfilt(b, a, sig)
+    env = np.abs(hilbert(filt))
+    return filt, env
+
+
 # ---------------------------------------------------------------------------
 #  Plotting
 # ---------------------------------------------------------------------------
@@ -97,9 +117,18 @@ def make_plot(spikes, signals, meta, slow_peak, spindle_peak, out_png):
     from scipy.signal import spectrogram
 
     tstop = meta["tstop"]
-    fig, axes = plt.subplots(4, 1, figsize=(11, 11))
+    tc, rc = signals["cortex"]           # cortical LFP-proxy (slow wave), fs_c
+    tt, rt = signals["thalamus"]         # thalamic LFP-proxy (spindles), fs_t
+    fs_c, fs_t = signals["fs_cortex"], signals["fs_thal"]
 
-    # 1. raster (cortex + thalamus), one row band per layer
+    # spindle band-pass (9-16 Hz) trace + envelope of the thalamic signal
+    spin_filt, spin_env = bandpass_envelope(rt, fs_t, 9.0, 16.0)
+    # slow-wave envelope of cortex, normalised, to mark UP/DOWN windows
+    rc_n = (rc - rc.min()) / max(1e-9, (rc.max() - rc.min()))
+
+    fig, axes = plt.subplots(5, 1, figsize=(11, 13))
+
+    # 1. raster by layer
     ax = axes[0]
     layers = [l for l in ["MGB", "nRT", "L4", "L23", "L5", "L6"] if l in spikes]
     for i, layer in enumerate(layers):
@@ -110,47 +139,62 @@ def make_plot(spikes, signals, meta, slow_peak, spindle_peak, out_png):
     ax.set_yticks(range(len(layers)))
     ax.set_yticklabels(layers)
     ax.set_xlim(0, tstop)
-    ax.set_title("Spike raster by layer (UP/DOWN banding = slow oscillation)")
-    ax.set_xlabel("time (ms)")
+    ax.set_title("Spike raster by layer (UP/DOWN banding = 1 Hz slow oscillation)")
 
-    # 2. cortical LFP-proxy + thalamic signal
+    # 2. slow wave + spindle envelope -> shows spindles NESTED on UP states
     ax = axes[1]
-    tc, rc = signals["cortex"]
-    ax.plot(tc, rc, lw=0.8, label="cortex pop-rate (LFP-proxy)")
-    tt, rt = signals["thalamus"]
-    ax.plot(tt, rt / max(1e-9, rt.max()) * rc.max(), lw=0.6, alpha=0.6,
-            label="thalamus (scaled)")
+    ax.plot(tc, rc_n, color="C0", lw=1.0, label="cortex slow wave (UP/DOWN)")
+    ax.fill_between(tc, 0, rc_n, color="C0", alpha=0.12)
+    env_n = spin_env / max(1e-9, spin_env.max())
+    ax2 = ax.twinx()
+    ax2.plot(tt, env_n, color="C3", lw=1.1, label="spindle (11-15 Hz) envelope")
+    ax2.set_ylim(0, 1.25)
+    ax2.set_ylabel("spindle env.", color="C3")
     ax.set_xlim(0, tstop)
-    ax.set_title("Population-rate signals")
+    ax.set_ylabel("slow wave", color="C0")
+    ax.set_title("Spindle envelope peaks ride the slow-wave UP states (nesting)")
+    l1, lab1 = ax.get_legend_handles_labels()
+    l2, lab2 = ax2.get_legend_handles_labels()
+    ax.legend(l1 + l2, lab1 + lab2, loc="upper right", fontsize=8)
+
+    # 3. zoom: band-pass 13 Hz trace over one slow cycle -> individual spindles
+    ax = axes[2]
+    win = (tt >= 0) & (tt <= min(2000.0, tstop))
+    ax.plot(tt[win], spin_filt[win], color="C3", lw=0.9, label="thalamus 9-16 Hz")
+    ax.plot(tt[win], spin_env[win], color="k", lw=1.0, alpha=0.7, label="envelope")
+    ax.plot(tt[win], -spin_env[win], color="k", lw=1.0, alpha=0.7)
+    ax.set_xlim(0, min(2000.0, tstop))
+    ax.set_title(f"Thalamic spindle oscillation, band-pass (peak {spindle_peak:.1f} Hz) "
+                 "- zoom 0-2000 ms")
     ax.set_xlabel("time (ms)")
     ax.legend(loc="upper right", fontsize=8)
 
-    # 3. PSD of cortical signal (slow-wave check)
-    ax = axes[2]
-    _, _, f, pxx = detect_peak(rc, signals["fs"], 0.2, 4.0)
-    ax.semilogy(f, pxx)
-    ax.axvline(1.0, color="g", ls="--", alpha=0.7, label="1 Hz target")
-    ax.axvline(slow_peak, color="r", ls=":", label=f"peak {slow_peak:.2f} Hz")
-    ax.set_xlim(0, 6)
-    ax.set_title("Cortical PSD - slow oscillation")
-    ax.set_xlabel("frequency (Hz)")
-    ax.legend(loc="upper right", fontsize=8)
-
-    # 4. spectrogram of thalamic signal (spindle nesting)
+    # 4. thalamic spectrogram (time-frequency view of the spindles)
     ax = axes[3]
     sig = rt - rt.mean()
-    fs = signals["fs"]
-    nper = min(len(sig), max(64, int(fs * 0.5)))
-    f, tspec, Sxx = spectrogram(sig, fs=fs, nperseg=nper,
-                                noverlap=int(nper * 0.9))
+    nper = min(len(sig), max(64, int(fs_t * 0.4)))
+    f, tspec, Sxx = spectrogram(sig, fs=fs_t, nperseg=nper, noverlap=int(nper * 0.9))
     fmask = f <= 25
     ax.pcolormesh(tspec * 1000.0, f[fmask], np.log1p(Sxx[fmask]), shading="auto")
-    ax.axhline(13.0, color="w", ls="--", alpha=0.6)
+    ax.axhline(13.0, color="w", ls="--", alpha=0.7)
     ax.set_ylim(0, 25)
-    ax.set_title(f"Thalamic spectrogram - spindles (peak {spindle_peak:.1f} Hz) "
-                 "nested on slow wave")
+    ax.set_title("Thalamic spectrogram - 13 Hz spindle bursts gated to UP states")
     ax.set_xlabel("time (ms)")
     ax.set_ylabel("frequency (Hz)")
+
+    # 5. PSDs: cortical (slow) and thalamic (spindle) peaks
+    ax = axes[4]
+    _, _, fc, pc = detect_peak(rc, fs_c, 0.2, 4.0)
+    _, _, ft, pt = detect_peak(rt, fs_t, 5.0, 25.0)
+    ax.semilogy(fc, pc / max(1e-12, pc.max()), color="C0", label="cortex (slow)")
+    ax.semilogy(ft, pt / max(1e-12, pt.max()), color="C3", label="thalamus (spindle)")
+    ax.axvline(1.0, color="C0", ls="--", alpha=0.5)
+    ax.axvline(13.0, color="C3", ls="--", alpha=0.5)
+    ax.set_xlim(0, 25)
+    ax.set_ylim(1e-4, 2)
+    ax.set_title(f"PSD - slow-wave peak {slow_peak:.2f} Hz, spindle peak {spindle_peak:.1f} Hz")
+    ax.set_xlabel("frequency (Hz)")
+    ax.legend(loc="upper right", fontsize=8)
 
     fig.tight_layout()
     fig.savefig(out_png, dpi=130)
@@ -197,27 +241,28 @@ def main(argv=None):
     spikes, traces, meta = model.run()
 
     # ----- build LFP-proxy signals -----
-    bin_ms = 2.0
-    fs = 1000.0 / bin_ms  # Hz
-
-    def merged_signal(layers):
+    # Cortex: coarser bin, more smoothing -> clean ~1 Hz slow wave.
+    # Thalamus: fine 1 ms bin (fs 1000 Hz), light smoothing -> resolves the
+    # ~13 Hz spindle for band-pass/Hilbert analysis.
+    def merged_signal(layers, bin_ms, smooth_ms):
         all_t = np.concatenate([spikes[l]["times"] for l in layers if l in spikes]) \
             if any(l in spikes for l in layers) else np.array([])
-        return population_rate(all_t, cfg.tstop, bin_ms=bin_ms)
+        return population_rate(all_t, cfg.tstop, bin_ms=bin_ms, smooth_ms=smooth_ms)
 
-    tc, rc = merged_signal(["L23", "L5", "L6"])     # cortical LFP-proxy
-    tt, rt = merged_signal(["MGB", "nRT"])          # thalamic signal
-    signals = {"cortex": (tc, rc), "thalamus": (tt, rt), "fs": fs}
+    fs_c = 1000.0 / 5.0
+    fs_t = 1000.0 / 1.0
+    tc, rc = merged_signal(["L23", "L5", "L6"], bin_ms=5.0, smooth_ms=25.0)
+    tt, rt = merged_signal(["MGB", "nRT"], bin_ms=1.0, smooth_ms=3.0)
+    signals = {"cortex": (tc, rc), "thalamus": (tt, rt),
+               "fs_cortex": fs_c, "fs_thal": fs_t}
 
-    # ----- analyse rhythms -----
-    # discard the first 500 ms transient
-    warmup = int(500 / bin_ms)
-    rc_a = rc[warmup:] if len(rc) > warmup else rc
-    rt_a = rt[warmup:] if len(rt) > warmup else rt
+    # ----- analyse rhythms (discard the first 500 ms transient) -----
+    rc_a = rc[int(500 / 5.0):] if len(rc) > int(500 / 5.0) else rc
+    rt_a = rt[int(500 / 1.0):] if len(rt) > int(500 / 1.0) else rt
 
-    slow_peak, slow_pow, _, _ = detect_peak(rc_a, fs, 0.3, 2.5)
-    spindle_peak, spindle_pow, _, _ = detect_peak(rt_a, fs, 9.0, 16.0)
-    spindle_band = band_power(rt_a, fs, 11.0, 15.0)
+    slow_peak, slow_pow, _, _ = detect_peak(rc_a, fs_c, 0.3, 2.5)
+    spindle_peak, spindle_pow, _, _ = detect_peak(rt_a, fs_t, 9.0, 16.0)
+    spindle_band = band_power(rt_a, fs_t, 11.0, 15.0)
 
     print("\n--- results ---")
     for layer in ["MGB", "nRT", "L4", "L23", "L5", "L6"]:

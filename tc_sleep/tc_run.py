@@ -106,9 +106,109 @@ def bandpass_envelope(signal, fs, lo, hi):
     return filt, env
 
 
+def _lowpass(signal, fs, cut):
+    from scipy.signal import butter, filtfilt
+    sig = np.asarray(signal, float)
+    sig = sig - sig.mean()
+    if len(sig) <= 12:
+        return sig
+    b, a = butter(3, cut / (fs / 2.0), btype="low")
+    return filtfilt(b, a, sig)
+
+
+def _zscore(x):
+    x = np.asarray(x, float)
+    s = x.std()
+    return (x - x.mean()) / s if s > 0 else x - x.mean()
+
+
+def build_eeg_like(spikes, tstop, seed=0):
+    """Compose a single EEG/LFP-like trace (in arbitrary uV) that contains BOTH
+    the slow oscillation and the actual ~13 Hz spindle wavelets superimposed,
+    the way a real sleep EEG channel looks:
+
+        eeg = slow(cortex, <2 Hz)  +  spindle(thalamus, 9-16 Hz)  +  light noise
+
+    Returns a dict with the trace and its components for shading/zooming.
+    """
+    fs = 1000.0  # 1 ms bins
+
+    def sig(layers, smooth):
+        st = np.concatenate([spikes[l]["times"] for l in layers if l in spikes]) \
+            if any(l in spikes for l in layers) else np.array([])
+        return population_rate(st, tstop, bin_ms=1.0, smooth_ms=smooth)
+
+    t, cort = sig(["L23", "L5", "L6"], 12.0)
+    _, thal = sig(["MGB", "nRT"], 3.0)
+
+    slow = _zscore(_lowpass(cort, fs, 2.0)) * 40.0                 # ~uV slow wave
+    spin_filt, spin_env = bandpass_envelope(thal, fs, 9.0, 16.0)   # 13 Hz wavelets
+    sc = np.percentile(spin_env, 99) if len(spin_env) else 0.0
+    scale = (40.0 / sc) if sc > 0 else 1.0                          # spindle bursts ~40 uV
+    spin = spin_filt * scale
+    env = spin_env * scale
+
+    rng = np.random.default_rng(seed)
+    noise = _lowpass(rng.standard_normal(len(slow)), fs, 40.0) * 4.0
+
+    eeg = slow + spin + noise
+    return {"t": t, "fs": fs, "eeg": eeg, "slow": slow, "spin": spin, "env": env}
+
+
+def detect_sp_sw(eeg_d):
+    """Detect spindle (SP) and slow-wave (SW) epochs for shading.
+
+    SP = sustained high spindle-envelope epochs (>=300 ms).
+    SW = large slow-wave down-state troughs (shaded +/-300 ms).
+    Returns (sp_windows, sw_windows) as lists of (t0, t1) in ms.
+    """
+    from scipy.signal import find_peaks
+    t, fs = eeg_d["t"], eeg_d["fs"]
+    env, slow = eeg_d["env"], eeg_d["slow"]
+
+    # smooth the envelope (~60 ms) so spindle epochs are contiguous, then keep
+    # epochs above the 55th percentile lasting >= 150 ms.
+    k = max(1, int(0.06 * fs))
+    env_s = np.convolve(env, np.ones(k) / k, mode="same")
+    thr = np.percentile(env_s, 55)
+    above = env_s > thr
+    sp = []
+    i, n = 0, len(above)
+    while i < n:
+        if above[i]:
+            j = i
+            while j < n and above[j]:
+                j += 1
+            if t[j - 1] - t[i] >= 150.0:
+                sp.append((t[i], t[j - 1]))
+            i = j
+        else:
+            i += 1
+
+    troughs, _ = find_peaks(-slow, prominence=max(1e-9, slow.std()),
+                            distance=int(0.6 * fs))
+    half = 0.30 * fs
+    sw = [(t[max(0, k - int(half))], t[min(n - 1, k + int(half))]) for k in troughs]
+    return sp, sw
+
+
 # ---------------------------------------------------------------------------
 #  Plotting
 # ---------------------------------------------------------------------------
+
+def _panel_label(ax, label):
+    ax.text(0.006, 0.90, label, transform=ax.transAxes, fontweight="bold",
+            fontsize=12, va="top", ha="left")
+
+
+def _shade(ax, windows, color, tag):
+    """Shade SP/SW windows and label the first one (reference-figure style)."""
+    for k, (t0, t1) in enumerate(windows):
+        ax.axvspan(t0, t1, color=color, alpha=0.28, lw=0)
+        if k == 0:
+            ax.text((t0 + t1) / 2.0, 0.97, tag, transform=ax.get_xaxis_transform(),
+                    ha="center", va="top", fontsize=9, fontweight="bold")
+
 
 def make_plot(spikes, signals, meta, slow_peak, spindle_peak, out_png):
     import matplotlib
@@ -121,14 +221,14 @@ def make_plot(spikes, signals, meta, slow_peak, spindle_peak, out_png):
     tt, rt = signals["thalamus"]         # thalamic LFP-proxy (spindles), fs_t
     fs_c, fs_t = signals["fs_cortex"], signals["fs_thal"]
 
-    # spindle band-pass (9-16 Hz) trace + envelope of the thalamic signal
-    spin_filt, spin_env = bandpass_envelope(rt, fs_t, 9.0, 16.0)
-    # slow-wave envelope of cortex, normalised, to mark UP/DOWN windows
-    rc_n = (rc - rc.min()) / max(1e-9, (rc.max() - rc.min()))
+    # composite EEG-like trace: slow wave + actual 13 Hz spindle wavelets
+    eeg = build_eeg_like(spikes, tstop, seed=meta.get("seed", 0))
+    sp_win, sw_win = detect_sp_sw(eeg)
+    te, ye = eeg["t"], eeg["eeg"]
 
-    fig, axes = plt.subplots(5, 1, figsize=(11, 13))
+    fig, axes = plt.subplots(5, 1, figsize=(11, 13.5))
 
-    # 1. raster by layer
+    # (a) raster by layer
     ax = axes[0]
     layers = [l for l in ["MGB", "nRT", "L4", "L23", "L5", "L6"] if l in spikes]
     for i, layer in enumerate(layers):
@@ -140,36 +240,38 @@ def make_plot(spikes, signals, meta, slow_peak, spindle_peak, out_png):
     ax.set_yticklabels(layers)
     ax.set_xlim(0, tstop)
     ax.set_title("Spike raster by layer (UP/DOWN banding = 1 Hz slow oscillation)")
+    _panel_label(ax, "(a)")
 
-    # 2. slow wave + spindle envelope -> shows spindles NESTED on UP states
+    # (b) EEG-like composite: 13 Hz spindles riding on the slow wave, SP/SW shaded
     ax = axes[1]
-    ax.plot(tc, rc_n, color="C0", lw=1.0, label="cortex slow wave (UP/DOWN)")
-    ax.fill_between(tc, 0, rc_n, color="C0", alpha=0.12)
-    env_n = spin_env / max(1e-9, spin_env.max())
-    ax2 = ax.twinx()
-    ax2.plot(tt, env_n, color="C3", lw=1.1, label="spindle (11-15 Hz) envelope")
-    ax2.set_ylim(0, 1.25)
-    ax2.set_ylabel("spindle env.", color="C3")
+    _shade(ax, sw_win, "tab:red", "SW")
+    _shade(ax, sp_win, "0.5", "SP")
+    ax.plot(te, ye, color="C0", lw=0.7)
+    ax.axhline(0, color="k", lw=0.5, alpha=0.5)
     ax.set_xlim(0, tstop)
-    ax.set_ylabel("slow wave", color="C0")
-    ax.set_title("Spindle envelope peaks ride the slow-wave UP states (nesting)")
-    l1, lab1 = ax.get_legend_handles_labels()
-    l2, lab2 = ax2.get_legend_handles_labels()
-    ax.legend(l1 + l2, lab1 + lab2, loc="upper right", fontsize=8)
+    ax.set_ylabel("amplitude (uV)")
+    ax.set_title("EEG-like LFP: 13 Hz spindles (SP) superimposed on slow waves (SW)")
+    _panel_label(ax, "(b)")
 
-    # 3. zoom: band-pass 13 Hz trace over one slow cycle -> individual spindles
+    # (c) zoom over ~2 slow cycles -> individual 13 Hz spindle wavelets on the SW
     ax = axes[2]
-    win = (tt >= 0) & (tt <= min(2000.0, tstop))
-    ax.plot(tt[win], spin_filt[win], color="C3", lw=0.9, label="thalamus 9-16 Hz")
-    ax.plot(tt[win], spin_env[win], color="k", lw=1.0, alpha=0.7, label="envelope")
-    ax.plot(tt[win], -spin_env[win], color="k", lw=1.0, alpha=0.7)
-    ax.set_xlim(0, min(2000.0, tstop))
-    ax.set_title(f"Thalamic spindle oscillation, band-pass (peak {spindle_peak:.1f} Hz) "
-                 "- zoom 0-2000 ms")
-    ax.set_xlabel("time (ms)")
+    # centre the zoom on the first spindle epoch if found, else start at 0
+    z0 = max(0.0, sp_win[0][0] - 700.0) if sp_win else 0.0
+    zmax = min(z0 + 2500.0, tstop)
+    win = (te >= z0) & (te <= zmax)
+    _shade(ax, [w for w in sw_win if w[1] > z0 and w[0] < zmax], "tab:red", "SW")
+    _shade(ax, [w for w in sp_win if w[1] > z0 and w[0] < zmax], "0.5", "SP")
+    ax.plot(te[win], ye[win], color="C0", lw=1.0)
+    ax.plot(te[win], eeg["slow"][win], color="k", lw=1.4, alpha=0.6,
+            label="slow component")
+    ax.axhline(0, color="k", lw=0.5, alpha=0.5)
+    ax.set_xlim(z0, zmax)
+    ax.set_ylabel("amplitude (uV)")
+    ax.set_title(f"Zoom: {spindle_peak:.1f} Hz spindle wavelets (SP) riding on the slow wave (SW)")
     ax.legend(loc="upper right", fontsize=8)
+    _panel_label(ax, "(c)")
 
-    # 4. thalamic spectrogram (time-frequency view of the spindles)
+    # (d) thalamic spectrogram (time-frequency view of the spindles)
     ax = axes[3]
     sig = rt - rt.mean()
     nper = min(len(sig), max(64, int(fs_t * 0.4)))
@@ -178,23 +280,25 @@ def make_plot(spikes, signals, meta, slow_peak, spindle_peak, out_png):
     ax.pcolormesh(tspec * 1000.0, f[fmask], np.log1p(Sxx[fmask]), shading="auto")
     ax.axhline(13.0, color="w", ls="--", alpha=0.7)
     ax.set_ylim(0, 25)
+    ax.set_xlim(0, tstop)
     ax.set_title("Thalamic spectrogram - 13 Hz spindle bursts gated to UP states")
-    ax.set_xlabel("time (ms)")
     ax.set_ylabel("frequency (Hz)")
+    _panel_label(ax, "(d)")
 
-    # 5. PSDs: cortical (slow) and thalamic (spindle) peaks
+    # (e) PSDs: cortical (slow) and thalamic (spindle) peaks
     ax = axes[4]
     _, _, fc, pc = detect_peak(rc, fs_c, 0.2, 4.0)
     _, _, ft, pt = detect_peak(rt, fs_t, 5.0, 25.0)
-    ax.semilogy(fc, pc / max(1e-12, pc.max()), color="C0", label="cortex (slow)")
-    ax.semilogy(ft, pt / max(1e-12, pt.max()), color="C3", label="thalamus (spindle)")
-    ax.axvline(1.0, color="C0", ls="--", alpha=0.5)
-    ax.axvline(13.0, color="C3", ls="--", alpha=0.5)
+    ax.semilogy(fc, pc / max(1e-12, pc.max()), color="k", label="cortex (slow)")
+    ax.semilogy(ft, pt / max(1e-12, pt.max()), color="C0", label="thalamus (spindle)")
+    ax.axvline(1.0, color="k", ls="--", alpha=0.5)
+    ax.axvline(13.0, color="C0", ls="--", alpha=0.5)
     ax.set_xlim(0, 25)
     ax.set_ylim(1e-4, 2)
     ax.set_title(f"PSD - slow-wave peak {slow_peak:.2f} Hz, spindle peak {spindle_peak:.1f} Hz")
     ax.set_xlabel("frequency (Hz)")
     ax.legend(loc="upper right", fontsize=8)
+    _panel_label(ax, "(e)")
 
     fig.tight_layout()
     fig.savefig(out_png, dpi=130)
@@ -239,6 +343,7 @@ def main(argv=None):
     model = AuditoryThalamoCorticalSleep(network_config=cfg, syn=SynapseParams(),
                                          sleep=SleepParams(), sim_config=sim_config)
     spikes, traces, meta = model.run()
+    meta["seed"] = args.seed
 
     # ----- build LFP-proxy signals -----
     # Cortex: coarser bin, more smoothing -> clean ~1 Hz slow wave.

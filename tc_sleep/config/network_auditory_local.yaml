@@ -34,6 +34,6 @@ splits:
   L6_E: 1
 
 simulation:
-  tstop: 3000.0   # ms - ~3 slow-wave cycles
+  tstop: 5000.0   # ms - ~5 slow-wave cycles (several SP/SW events to show)
   dt: 0.1         # ms - coarse but fast; fine for the sane test
   v_init: -65

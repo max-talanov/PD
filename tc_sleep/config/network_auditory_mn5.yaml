@@ -6,7 +6,7 @@
 # laptop can comfortably do interactively; launched on MN5 with several NEST
 # threads per task (see tc_sleep/slurm/tc_sleep_mn5.sbatch).
 #
-#   srun python tc_sleep/tc_run.py \
+#   srun python3 tc_sleep/tc_run.py \
 #       --config tc_sleep/config/network_auditory_mn5.yaml \
 #       --threads $SLURM_CPUS_PER_TASK --outdir sweep_out
 

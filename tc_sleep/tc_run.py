@@ -11,7 +11,7 @@ it in NEST, and verifies the two required rhythms:
 
 Run locally (sane test, seconds)::
 
-    python tc_sleep/tc_run.py --config tc_sleep/config/network_auditory_local.yaml --outdir out
+    python3 tc_sleep/tc_run.py --config tc_sleep/config/network_auditory_local.yaml --outdir out
 
 On MareNostrum 5 the same entry-point is launched with the MN5 config and
 multiple threads (see tc_sleep/slurm/tc_sleep_mn5.sbatch).
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-# allow both `python tc_sleep/tc_run.py` and `python -m tc_sleep.tc_run`
+# allow both `python3 tc_sleep/tc_run.py` and `python3 -m tc_sleep.tc_run`
 try:
     from tc_sleep.tc_network import (
         AuditoryThalamoCorticalSleep, NetworkConfig, SimulationConfig,

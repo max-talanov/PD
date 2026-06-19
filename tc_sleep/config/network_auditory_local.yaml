@@ -5,7 +5,7 @@
 # laptop and the 1 Hz / 13 Hz rhythms are checkable. For the large, long
 # bio-plausible run, use network_auditory_mn5.yaml.
 #
-#   python tc_sleep/tc_run.py --config tc_sleep/config/network_auditory_local.yaml --outdir out
+#   python3 tc_sleep/tc_run.py --config tc_sleep/config/network_auditory_local.yaml --outdir out
 
 network:
   thalamus:        # MGB: TCR relay (E) + nRT reticular (I)

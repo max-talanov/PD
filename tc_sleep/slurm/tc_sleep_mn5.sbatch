@@ -48,7 +48,7 @@ TSTOP="${TSTOP:-}"   # empty -> use the value in the YAML (30 s)
 
 echo "host=$(hostname) cpus=${SLURM_CPUS_PER_TASK:-1} config=${CONFIG}"
 
-srun python tc_sleep/tc_run.py \
+srun python3 tc_sleep/tc_run.py \
     --config "${CONFIG}" \
     --threads "${SLURM_CPUS_PER_TASK:-1}" \
     --outdir "${OUTDIR}" \

@@ -58,7 +58,7 @@ Local sane test (seconds on a laptop with NEST 3.x installed):
 
 ```bash
 pip install -r ../requirements.txt   # numpy matplotlib scipy pyyaml (+ NEST)
-python tc_sleep/tc_run.py --config tc_sleep/config/network_auditory_local.yaml --outdir out
+python3 tc_sleep/tc_run.py --config tc_sleep/config/network_auditory_local.yaml --outdir out
 ```
 
 It prints per-layer firing rates and the **detected slow-wave (~1 Hz)** and

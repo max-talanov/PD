@@ -1,0 +1,42 @@
+# Auditory thalamo-cortical sleep model - MareNostrum 5 (MN5) configuration.
+#
+# Biologically realistic population sizes (~1150 neurons, after cc's
+# network_realistic.yaml: Markram et al. 2015; Traub et al. 2005) and a long
+# run (30 s) so the slow-wave and spindle spectra are stable. Heavier than the
+# laptop can comfortably do interactively; launched on MN5 with several NEST
+# threads per task (see tc_sleep/slurm/tc_sleep_mn5.sbatch).
+#
+#   srun python3 tc_sleep/tc_run.py \
+#       --config tc_sleep/config/network_auditory_mn5.yaml \
+#       --threads $SLURM_CPUS_PER_TASK --outdir sweep_out
+
+network:
+  thalamus:        # MGB: TCR relay (E) + nRT reticular (I)
+    E: 80
+    I: 20
+  L4:
+    E: 240
+    I: 60
+  L23:
+    E: 240
+    I: 60
+  L5:
+    E: 200
+    I: 50
+  L6:
+    E: 160
+    I: 40
+
+splits:
+  L23_E: 2
+  L23_I: 3
+  L4_E: 1
+  L4_I: 1
+  L5_E: 2
+  L56_I: 3
+  L6_E: 1
+
+simulation:
+  tstop: 30000.0  # ms - 30 s, many slow-wave/spindle cycles for stable spectra
+  dt: 0.025       # ms - fine integration (40 kHz)
+  v_init: -65

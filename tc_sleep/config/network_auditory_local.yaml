@@ -1,0 +1,39 @@
+# Auditory thalamo-cortical sleep model - LOCAL sane-test configuration.
+#
+# Small column (~106 neurons, the cc default sizes) and a short run that still
+# spans a few slow-wave cycles, so the whole pipeline runs in seconds on a
+# laptop and the 1 Hz / 13 Hz rhythms are checkable. For the large, long
+# bio-plausible run, use network_auditory_mn5.yaml.
+#
+#   python3 tc_sleep/tc_run.py --config tc_sleep/config/network_auditory_local.yaml --outdir out
+
+network:
+  thalamus:        # MGB: TCR relay (E) + nRT reticular (I)
+    E: 10
+    I: 4
+  L4:
+    E: 24
+    I: 6
+  L23:
+    E: 24
+    I: 6
+  L5:
+    E: 20
+    I: 5
+  L6:
+    E: 16
+    I: 4
+
+splits:
+  L23_E: 2      # RS + FRB
+  L23_I: 3      # Basket, LTS, Axoaxonic
+  L4_E: 1
+  L4_I: 1
+  L5_E: 2       # TuftRS + TuftIB
+  L56_I: 3      # shared L5/6 Basket, LTS, Axoaxonic
+  L6_E: 1
+
+simulation:
+  tstop: 5000.0   # ms - ~5 slow-wave cycles (several SP/SW events to show)
+  dt: 0.1         # ms - coarse but fast; fine for the sane test
+  v_init: -65

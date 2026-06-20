@@ -1,6 +1,7 @@
 # Phase 5 HPC sweep artifacts
 sweep_out/
 results/
+out/
 logs/
 *.slurmout
 *.slurmerr

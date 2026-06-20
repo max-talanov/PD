@@ -1,6 +1,9 @@
 # Phase 5 HPC sweep artifacts
 sweep_out/
+results/
 logs/
+*.slurmout
+*.slurmerr
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

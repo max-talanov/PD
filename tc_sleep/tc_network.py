@@ -573,9 +573,11 @@ class AuditoryThalamoCorticalSleep:
             nest.Connect(nodes, sr)
             recorders[layer] = sr
             if self.sim.record_traces:
-                mm = nest.Create("multimeter",
-                                 params={"record_from": ["V_m"], "interval": interval})
-                nest.Connect(mm, nodes[: min(5, len(nodes))])
+                # Record V_m from a sample of cells (up to 20) at >=0.5 ms so the
+                # per-layer mean V_m forms a usable LFP proxy without huge logs.
+                mm = nest.Create("multimeter", params={
+                    "record_from": ["V_m"], "interval": max(0.5, self.cfg.dt)})
+                nest.Connect(mm, nodes[: min(20, len(nodes))])
                 multimeters[layer] = mm
         return recorders, multimeters
 
@@ -598,10 +600,16 @@ class AuditoryThalamoCorticalSleep:
             }
         for layer, mm in multimeters.items():
             ev = self._events(mm, nest)
-            times = np.asarray(ev["times"])
-            volts = np.asarray(ev["V_m"])
-            if len(times):
-                traces[layer] = {"time": times, "voltage": volts}
+            times = np.asarray(ev["times"], float)
+            volts = np.asarray(ev["V_m"], float)
+            if not len(times):
+                continue
+            # mean V_m across the recorded cells at each sampled time -> LFP proxy
+            ut = np.unique(times)
+            idx = np.searchsorted(ut, times)
+            sums = np.bincount(idx, weights=volts, minlength=len(ut))
+            cnts = np.bincount(idx, minlength=len(ut))
+            traces[layer] = {"time": ut, "voltage": sums / np.maximum(1, cnts)}
         return spikes, traces
 
     # -- run ---------------------------------------------------------------

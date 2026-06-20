@@ -122,24 +122,30 @@ def _zscore(x):
     return (x - x.mean()) / s if s > 0 else x - x.mean()
 
 
-def build_eeg_like(spikes, tstop, seed=0):
-    """Compose a single EEG/LFP-like trace (in arbitrary uV) that contains BOTH
-    the slow oscillation and the actual ~13 Hz spindle wavelets superimposed,
-    the way a real sleep EEG channel looks:
+def build_eeg_like(traces, tstop, seed=0):
+    """Compose a single EEG/LFP-like trace (in arbitrary uV) from the recorded
+    **membrane potentials**, containing BOTH the slow oscillation and the actual
+    ~13 Hz spindle wavelets superimposed, the way a real sleep EEG channel looks:
 
-        eeg = slow(cortex, <2 Hz)  +  spindle(thalamus, 9-16 Hz)  +  light noise
+        eeg = slow(cortex V_m, <2 Hz)  +  spindle(thalamus V_m, 9-16 Hz)  +  noise
 
-    Returns a dict with the trace and its components for shading/zooming.
+    The per-layer mean V_m (an LFP proxy) is taken from the multimeters, so the
+    trace reflects sub-threshold synaptic/input potentials rather than binned
+    spike counts. Returns the trace plus components for shading/zooming.
     """
-    fs = 1000.0  # 1 ms bins
+    fs = 1000.0
+    grid = np.arange(0.0, tstop, 1.0)  # common 1 ms grid
 
-    def sig(layers, smooth):
-        st = np.concatenate([spikes[l]["times"] for l in layers if l in spikes]) \
-            if any(l in spikes for l in layers) else np.array([])
-        return population_rate(st, tstop, bin_ms=1.0, smooth_ms=smooth)
+    def layer_vm(layers):
+        vs = []
+        for l in layers:
+            tr = traces.get(l)
+            if tr is not None and len(tr["time"]) > 1:
+                vs.append(np.interp(grid, tr["time"], tr["voltage"]))
+        return np.mean(vs, axis=0) if vs else np.zeros_like(grid)
 
-    t, cort = sig(["L23", "L5", "L6"], 12.0)
-    _, thal = sig(["MGB", "nRT"], 3.0)
+    cort = layer_vm(["L23", "L5", "L6"])   # cortical mean V_m -> slow wave
+    thal = layer_vm(["MGB", "nRT"])        # thalamic mean V_m -> spindles
 
     slow = _zscore(_lowpass(cort, fs, 2.0)) * 40.0                 # ~uV slow wave
     spin_filt, spin_env = bandpass_envelope(thal, fs, 9.0, 16.0)   # 13 Hz wavelets
@@ -152,7 +158,8 @@ def build_eeg_like(spikes, tstop, seed=0):
     noise = _lowpass(rng.standard_normal(len(slow)), fs, 40.0) * 4.0
 
     eeg = slow + spin + noise
-    return {"t": t, "fs": fs, "eeg": eeg, "slow": slow, "spin": spin, "env": env}
+    return {"t": grid, "fs": fs, "eeg": eeg, "slow": slow, "spin": spin,
+            "env": env, "cort_v": cort, "thal_v": thal}
 
 
 def detect_sp_sw(eeg_d):
@@ -210,21 +217,20 @@ def _shade(ax, windows, color, tag):
                     ha="center", va="top", fontsize=9, fontweight="bold")
 
 
-def make_plot(spikes, signals, meta, slow_peak, spindle_peak, out_png):
+def make_plot(spikes, traces, meta, slow_peak, spindle_peak, out_png):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from scipy.signal import spectrogram
 
     tstop = meta["tstop"]
-    tc, rc = signals["cortex"]           # cortical LFP-proxy (slow wave), fs_c
-    tt, rt = signals["thalamus"]         # thalamic LFP-proxy (spindles), fs_t
-    fs_c, fs_t = signals["fs_cortex"], signals["fs_thal"]
 
-    # composite EEG-like trace: slow wave + actual 13 Hz spindle wavelets
-    eeg = build_eeg_like(spikes, tstop, seed=meta.get("seed", 0))
+    # composite EEG-like trace built from the recorded membrane potentials:
+    # slow wave (cortex V_m) + actual 13 Hz spindle wavelets (thalamus V_m)
+    eeg = build_eeg_like(traces, tstop, seed=meta.get("seed", 0))
     sp_win, sw_win = detect_sp_sw(eeg)
     te, ye = eeg["t"], eeg["eeg"]
+    fs_v = eeg["fs"]
 
     fig, axes = plt.subplots(5, 1, figsize=(11, 13.5))
 
@@ -271,31 +277,31 @@ def make_plot(spikes, signals, meta, slow_peak, spindle_peak, out_png):
     ax.legend(loc="upper right", fontsize=8)
     _panel_label(ax, "(c)")
 
-    # (d) thalamic spectrogram (time-frequency view of the spindles)
+    # (d) thalamic V_m spectrogram (time-frequency view of the spindles)
     ax = axes[3]
-    sig = rt - rt.mean()
-    nper = min(len(sig), max(64, int(fs_t * 0.4)))
-    f, tspec, Sxx = spectrogram(sig, fs=fs_t, nperseg=nper, noverlap=int(nper * 0.9))
+    sig = eeg["thal_v"] - eeg["thal_v"].mean()
+    nper = min(len(sig), max(64, int(fs_v * 0.4)))
+    f, tspec, Sxx = spectrogram(sig, fs=fs_v, nperseg=nper, noverlap=int(nper * 0.9))
     fmask = f <= 25
     ax.pcolormesh(tspec * 1000.0, f[fmask], np.log1p(Sxx[fmask]), shading="auto")
     ax.axhline(13.0, color="w", ls="--", alpha=0.7)
     ax.set_ylim(0, 25)
     ax.set_xlim(0, tstop)
-    ax.set_title("Thalamic spectrogram - 13 Hz spindle bursts gated to UP states")
+    ax.set_title("Thalamic V_m spectrogram - 13 Hz spindle bursts gated to UP states")
     ax.set_ylabel("frequency (Hz)")
     _panel_label(ax, "(d)")
 
-    # (e) PSDs: cortical (slow) and thalamic (spindle) peaks
+    # (e) PSDs of the V_m LFP: cortical (slow) and thalamic (spindle) peaks
     ax = axes[4]
-    _, _, fc, pc = detect_peak(rc, fs_c, 0.2, 4.0)
-    _, _, ft, pt = detect_peak(rt, fs_t, 5.0, 25.0)
-    ax.semilogy(fc, pc / max(1e-12, pc.max()), color="k", label="cortex (slow)")
-    ax.semilogy(ft, pt / max(1e-12, pt.max()), color="C0", label="thalamus (spindle)")
+    _, _, fc, pc = detect_peak(eeg["cort_v"], fs_v, 0.2, 4.0)
+    _, _, ft, pt = detect_peak(eeg["thal_v"], fs_v, 5.0, 25.0)
+    ax.semilogy(fc, pc / max(1e-12, pc.max()), color="k", label="cortex V_m (slow)")
+    ax.semilogy(ft, pt / max(1e-12, pt.max()), color="C0", label="thalamus V_m (spindle)")
     ax.axvline(1.0, color="k", ls="--", alpha=0.5)
     ax.axvline(13.0, color="C0", ls="--", alpha=0.5)
     ax.set_xlim(0, 25)
     ax.set_ylim(1e-4, 2)
-    ax.set_title(f"PSD - slow-wave peak {slow_peak:.2f} Hz, spindle peak {spindle_peak:.1f} Hz")
+    ax.set_title(f"V_m PSD - slow-wave peak {slow_peak:.2f} Hz (rate), spindle peak {spindle_peak:.1f} Hz (rate)")
     ax.set_xlabel("frequency (Hz)")
     ax.legend(loc="upper right", fontsize=8)
     _panel_label(ax, "(e)")
@@ -383,7 +389,7 @@ def main(argv=None):
     tag = args.tag or (Path(args.config).stem.replace("network_auditory_", "")
                        if args.config else "default")
     if not args.no_plot:
-        make_plot(spikes, signals, meta, slow_peak, spindle_peak,
+        make_plot(spikes, traces, meta, slow_peak, spindle_peak,
                   outdir / f"tc_sleep_{tag}.png")
 
     # ----- self-validation -----

@@ -65,14 +65,20 @@ It prints per-layer firing rates and the **detected slow-wave (~1 Hz)** and
 **spindle (~13 Hz)** peaks, and writes `out/tc_sleep_local.png` with five
 indexed panels:
 - **(a)** per-layer spike raster with UP/DOWN banding;
-- **(b)** an **EEG/LFP-like composite trace** (slow component + the actual
-  ~13 Hz spindle wavelets superimposed, the way a sleep EEG channel looks),
-  with detected **SP** (spindle) and **SW** (slow-wave) epochs shaded — the
-  13 Hz spindles sit on the slow waves;
+- **(b)** an **EEG/LFP-like composite trace built from the recorded membrane
+  potentials** — cortical mean V_m (low-pass <2 Hz) for the slow wave plus
+  thalamic mean V_m (9–16 Hz band-pass) for the ~13 Hz spindle wavelets,
+  superimposed the way a sleep EEG channel looks — with detected **SP**
+  (spindle) and **SW** (slow-wave) epochs shaded;
 - **(c)** a zoom over ~2 slow cycles resolving the individual 13 Hz spindle
-  wavelets riding on the slow wave (slow component overlaid in black);
-- **(d)** a thalamic spectrogram (13 Hz bursts gated to UP states);
-- **(e)** cortical (slow) and thalamic (spindle) PSDs.
+  wavelets riding on the slow wave (slow V_m component overlaid in black);
+- **(d)** a thalamic **V_m** spectrogram (13 Hz bursts gated to UP states);
+- **(e)** cortical and thalamic **V_m** PSDs (slow and spindle peaks).
+
+The per-layer mean V_m used for the figure is an LFP proxy taken from
+multimeters on a sample of cells; the printed/asserted slow-wave and spindle
+peaks are computed independently from the population spike rates, so the
+self-validation still reflects that neurons actually fire at those rhythms.
 
 The process exits non-zero if either rhythm is missing, so the run
 self-validates.

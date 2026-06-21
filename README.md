@@ -118,6 +118,30 @@ the spiking model through firing-rate read-outs. A natural next step is to
 close this loop with a genuinely oscillating (synchronised) STN-GPe
 spiking sub-circuit.
 
+## Phase 6: tremor decay at DBS onset
+
+`pd_phase6_dbs_tremor_decay.py` makes the DBS *transient* visible: a single
+PD trial where GPi-DBS switches on partway through, so the limb-force
+tremor visibly **decays** over a few cycles after stimulation onset
+(phases 4-5 only compare static on/off conditions).
+
+At DBS onset, GPi efferent silencing relieves GPi → Th inhibition and
+thalamic firing recovers over a time constant `tau_recover_ms`; the tremor
+drive relaxes from its PD level to its PD+DBS level (both read out from the
+spiking model, not hand-set) while the voluntary drive recovers in
+parallel (bradykinesia relief). The tremor-band amplitude envelope is
+computed with a Hilbert transform (SciPy; sliding-RMS fallback).
+
+```bash
+python pd_phase6_dbs_tremor_decay.py
+```
+
+Saves `pd_phase6_dbs_tremor_decay_output.png` (limb force + envelope, and
+the underlying drives) and reports the % tremor reduction and the 1/e
+decay time. Representative run: tremor drive 1.47 → 0.53, envelope ~71%
+reduction, ~400 ms 1/e decay after onset (onset time and `tau_recover_ms`
+are adjustable parameters).
+
 ## Phase 5: HPC parameter sweep (BSC MareNostrum 5 ready)
 
 `pd_phase5_hpc_sweep.py` wraps the Phase 1-4 model in an embarrassingly

@@ -134,9 +134,16 @@ python3 pd_phase5_hpc_sweep.py --smoke --outdir out   # run first few points loc
 python3 pd_phase5_hpc_sweep.py --aggregate --outdir out
 ```
 
-On the cluster, `slurm/pd_phase5_sweep.sbatch` launches the array; see its
-header for submission. The `nest` backend is a documented stub describing
-the mean-field → spiking mapping to implement cluster-side.
+On the cluster, `slurm/pd_phase5_sweep.sbatch` (or the top-level `run.sh`)
+launches the array; see its header for submission. The `nest` backend is a
+documented stub describing the mean-field → spiking mapping to implement
+cluster-side.
+
+A first full 72-point sweep was run on BSC MareNostrum 5 — see
+[`docs/PHASE5_RESULTS_2026-06-21.md`](docs/PHASE5_RESULTS_2026-06-21.md):
+GPi→Th gain is a clean disease-severity knob, GPi-DBS restores
+thalamocortical output (and shows a dose-response) while STN-DBS does not,
+confirming at scale what the single-run tuning suggested.
 
 ## Thalamo-cortical sleep model (auditory) — NEST
 
